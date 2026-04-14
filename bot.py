@@ -10,7 +10,7 @@ from pathlib import Path
 
 from crawlers import CRAWLER_REGISTRY, Post
 from discord_poster import build_embed, post_to_discord
-from summarizer import batch_filter_and_summarize
+from summarizer import filter_and_summarize
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,23 +74,21 @@ def run() -> None:
             logger.info(f"[{source_id}] 신규 게시물 없음")
             continue
 
-        logger.info(f"[{source_id}] 신규 게시물 {len(new_posts)}개 → Gemini 일괄 처리")
+        logger.info(f"[{source_id}] 신규 게시물 {len(new_posts)}개 처리 (키워드 필터 → Gemini 요약)")
 
-        # 본문이 없는 경우 개별 페이지에서 보완
         for post in new_posts:
             if not post.content:
                 post.content = crawler.fetch_post_content(post.url)
 
-        # Gemini 한 번 호출로 전체 필터링 + 요약
-        summaries = batch_filter_and_summarize(new_posts, source)
-
-        for post in new_posts:
+            summary = filter_and_summarize(post, source)
             seen_ids.add(post.id)
-            summary = summaries.get(post.id)
+
             if summary is None:
                 continue
+
             embed = build_embed(post, summary, source)
             all_embeds.append(embed)
+            time.sleep(1)
 
         updated_seen[source_id] = list(seen_ids)
 

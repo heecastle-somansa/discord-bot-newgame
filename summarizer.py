@@ -1,15 +1,14 @@
 """
-Gemini AI로 게임 뉴스 기사를 필터링하고 요약합니다.
+신규 게임 출시 기사 필터링 + Gemini AI 요약
 
-핵심 설계:
-- 기사 여러 개를 한 번의 API 호출로 처리 (rate limit 방지)
-- "신규 게임 출시/발매" 관련 기사만 Discord에 전송
-- 해당하지 않으면 None 반환
+처리 흐름:
+  1. 키워드 필터 (무료, API 불필요) → 관련 없는 기사 대부분 제거
+  2. Gemini 요약 (키워드 통과 기사만, 보통 1~3개)
 """
 
-import json
 import logging
 import os
+import re
 import time
 
 import google.generativeai as genai
@@ -18,9 +17,25 @@ from crawlers.base import Post
 
 logger = logging.getLogger(__name__)
 
+# 신규 출시 관련 키워드 (제목에 하나라도 포함되면 통과)
+RELEASE_KEYWORDS = [
+    "출시", "발매", "런칭", "오픈", "정식 서비스", "정식서비스",
+    "사전예약", "사전 예약", "사전다운로드", "사전 다운로드",
+    "얼리 액세스", "앞서 해보기",
+    "신작", "신규 게임", "새 게임",
+    "리뷰", "평점", "메타크리틱", "오픈크리틱",
+    "released", "launch", "release date",
+]
+
 _model = None
-MAX_RETRIES = 3
-RETRY_DELAY = 10  # 초
+MAX_RETRIES = 2
+RETRY_DELAY = 15
+
+
+def _keyword_match(title: str, content: str) -> bool:
+    """제목 또는 본문 앞부분에 출시 관련 키워드가 있는지 확인합니다."""
+    text = (title + " " + content[:300]).lower()
+    return any(kw.lower() in text for kw in RELEASE_KEYWORDS)
 
 
 def _get_model():
@@ -30,100 +45,60 @@ def _get_model():
         if not api_key:
             raise EnvironmentError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
         genai.configure(api_key=api_key)
-        _model = genai.GenerativeModel("gemini-2.0-flash")
+        _model = genai.GenerativeModel("gemini-1.5-flash")
     return _model
 
 
 def _call_gemini(prompt: str) -> str:
-    """재시도 로직 포함 Gemini 호출."""
-    model = _get_model()
     for attempt in range(MAX_RETRIES):
         try:
-            response = model.generate_content(prompt)
+            response = _get_model().generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             err = str(e)
-            if "429" in err or "quota" in err.lower():
+            if "429" in err or "quota" in err.lower() or "exhausted" in err.lower():
                 wait = RETRY_DELAY * (attempt + 1)
-                logger.warning(f"Gemini 한도 초과 — {wait}초 후 재시도 ({attempt+1}/{MAX_RETRIES})")
+                logger.warning(f"Gemini 한도 — {wait}초 후 재시도 ({attempt+1}/{MAX_RETRIES})")
                 time.sleep(wait)
             else:
                 logger.error(f"Gemini 오류: {e}")
                 return ""
-    logger.error("Gemini 최대 재시도 횟수 초과")
+    logger.error("Gemini 재시도 초과 — 키워드 기반 요약으로 대체")
     return ""
 
 
-def batch_filter_and_summarize(posts: list[Post], source: dict) -> dict[str, str | None]:
-    """
-    여러 기사를 한 번의 Gemini 호출로 필터링 + 요약합니다.
+def _fallback_summary(post: Post) -> str:
+    """Gemini 실패 시 본문 앞부분을 그대로 사용합니다."""
+    content = post.content[:300].strip() if post.content else ""
+    return content or "(요약 없음 — 원문 링크를 확인해 주세요)"
 
-    반환값: { post.id: 요약문 또는 None }
-      - 요약문  → 신규 게임 출시 관련 기사 (Discord 전송 대상)
-      - None    → 관련 없는 기사 (건너뜀)
-    """
-    if not posts:
-        return {}
 
-    articles_text = ""
-    for i, post in enumerate(posts):
-        body = post.content[:800] if post.content else "(본문 없음)"
-        articles_text += f"""
---- 기사 {i+1} (ID: {post.id}) ---
+def filter_and_summarize(post: Post, source: dict) -> str | None:
+    """
+    단일 기사를 필터링하고 요약합니다.
+    - 키워드 미해당 → None 반환 (건너뜀)
+    - 키워드 해당 → Gemini 요약문 반환
+    """
+    if not _keyword_match(post.title, post.content):
+        logger.info(f"[키워드 제외] {post.title[:50]}")
+        return None
+
+    logger.info(f"[키워드 통과] {post.title[:50]}")
+
+    body = post.content[:1500] if post.content else "(본문 없음)"
+    prompt = f"""다음 게임 뉴스 기사를 요약해 주세요.
+
 제목: {post.title}
 본문: {body}
-"""
 
-    prompt = f"""다음은 게임 뉴스 기사 목록입니다.
-각 기사에 대해 두 가지를 판단하고, 아래 JSON 형식으로만 응답하세요.
+아래 형식으로 작성하세요 (이모지 금지, ~습니다 체):
+게임명: (게임 이름)
+플랫폼: (PC / 모바일 / 콘솔 / 멀티플랫폼)
+출시일: (출시일 또는 예정일, 모르면 미정)
+요약: (핵심 내용 2~3줄)"""
 
-판단 기준 - 아래 중 하나에 해당하면 RELEVANT:
-- 신규 게임의 출시, 발매, 런칭 소식
-- 신규 게임의 출시 일정 공개
-- 신규 게임의 사전 예약·사전 다운로드 시작
-- 신규 게임의 출시 후 첫 리뷰·평점 공개
-
-{articles_text}
-
-응답 형식 (JSON 배열, 다른 텍스트 없이 JSON만):
-[
-  {{
-    "id": "기사ID",
-    "relevant": true 또는 false,
-    "game_name": "게임명 (relevant=true일 때만)",
-    "platform": "PC/모바일/콘솔/멀티플랫폼 (relevant=true일 때만)",
-    "release_date": "출시일 또는 예정일, 모르면 미정 (relevant=true일 때만)",
-    "summary": "핵심 내용 2~3줄 요약. ~습니다 체. (relevant=true일 때만)"
-  }}
-]"""
-
-    raw = _call_gemini(prompt)
-    if not raw:
-        return {post.id: None for post in posts}
-
-    # JSON 파싱
-    try:
-        # 코드블록 제거
-        raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        items = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error(f"Gemini 응답 JSON 파싱 실패: {e}\n응답: {raw[:300]}")
-        return {post.id: None for post in posts}
-
-    result: dict[str, str | None] = {post.id: None for post in posts}
-
-    for item in items:
-        pid = str(item.get("id", ""))
-        if not item.get("relevant"):
-            logger.info(f"[필터 제외] id={pid}")
-            continue
-
-        summary_lines = [
-            f"**게임명:** {item.get('game_name', '-')}",
-            f"**플랫폼:** {item.get('platform', '-')}  |  **출시일:** {item.get('release_date', '미정')}",
-            f"{item.get('summary', '')}",
-        ]
-        result[pid] = "\n".join(summary_lines)
-        logger.info(f"[필터 통과] id={pid} | {item.get('game_name', '')}")
+    result = _call_gemini(prompt)
+    if not result:
+        return _fallback_summary(post)
 
     return result
