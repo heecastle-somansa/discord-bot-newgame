@@ -41,9 +41,9 @@ class QuasarzoneCrawler(BaseCrawler):
         token = token_tag.get("content") or token_tag.get("value", "")
         cookies = dict(base_response.cookies)
 
-        # 2) 베스트 필터 파라미터로 POST 요청
+        # 2) 세션에 쿠키가 유지된 상태로 베스트 필터 POST 요청
         try:
-            response = requests.post(
+            response = self._session.post(
                 url,
                 data={
                     "_method": "post",
@@ -56,15 +56,16 @@ class QuasarzoneCrawler(BaseCrawler):
                     "sort": "num, reply",
                     "direction": "DESC",
                 },
-                headers=self.HEADERS,
-                cookies=cookies,
-                timeout=15,
+                timeout=20,
             )
+            logger.info(f"[{self.config['id']}] 베스트 필터 POST → HTTP {response.status_code}")
             response.raise_for_status()
-            logger.info(f"[{self.config['id']}] 베스트 필터 POST 성공")
             return response
+        except requests.HTTPError as e:
+            logger.error(f"[{self.config['id']}] 베스트 필터 POST 실패 (HTTP {e.response.status_code})")
+            return None
         except requests.RequestException as e:
-            logger.error(f"[{self.config['id']}] 베스트 필터 POST 실패: {e}")
+            logger.error(f"[{self.config['id']}] 베스트 필터 POST 실패 ({type(e).__name__}): {e}")
             return None
 
     def fetch_post_list(self) -> list[Post]:
