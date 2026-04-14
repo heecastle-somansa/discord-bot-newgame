@@ -9,6 +9,16 @@
       "color": 3066993,
       "max_posts_per_run": 10,
       "enabled": true
+    },
+    {
+      "id": "ruliweb_news",
+      "name": "루리웹",
+      "icon": "🕹️",
+      "url": "https://feeds.feedburner.com/ruliweb",
+      "crawler_type": "rss",
+      "color": 15105570,
+      "max_posts_per_run": 10,
+      "enabled": true
     }
   ]
 }
