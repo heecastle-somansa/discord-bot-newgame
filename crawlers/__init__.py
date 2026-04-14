@@ -1,8 +1,8 @@
 from .base import Post, BaseCrawler
-from .quasarzone import QuasarzoneCrawler
+from .rss import RssCrawler
 
 CRAWLER_REGISTRY: dict[str, type[BaseCrawler]] = {
-    "quasarzone": QuasarzoneCrawler,
+    "rss": RssCrawler,
 }
 
 __all__ = ["Post", "BaseCrawler", "CRAWLER_REGISTRY"]

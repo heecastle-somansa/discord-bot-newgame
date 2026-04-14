@@ -10,7 +10,7 @@ from pathlib import Path
 
 from crawlers import CRAWLER_REGISTRY, Post
 from discord_poster import build_embed, post_to_discord
-from summarizer import summarize
+from summarizer import filter_and_summarize
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,11 +77,17 @@ def run() -> None:
         logger.info(f"[{source_id}] 신규 게시물 {len(new_posts)}개 처리")
 
         for post in new_posts:
-            post.content = crawler.fetch_post_content(post.url)
-            summary = summarize(post, source)
+            if not post.content:
+                post.content = crawler.fetch_post_content(post.url)
+
+            summary = filter_and_summarize(post, source)
+            seen_ids.add(post.id)  # 필터 제외된 기사도 다시 처리하지 않음
+
+            if summary is None:
+                continue  # 신규 출시 관련 없는 기사 → 건너뜀
+
             embed = build_embed(post, summary, source)
             all_embeds.append(embed)
-            seen_ids.add(post.id)
             time.sleep(0.5)
 
         updated_seen[source_id] = list(seen_ids)

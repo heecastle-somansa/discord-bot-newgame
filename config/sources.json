@@ -1,14 +1,13 @@
 {
   "sources": [
     {
-      "id": "quasarzone_game",
-      "name": "퀘이사존 게임뉴스 베스트",
-      "icon": "🔥",
-      "url": "https://quasarzone.com/bbs/qn_game",
-      "crawler_type": "quasarzone",
-      "popularity": true,
-      "color": 15548997,
-      "max_posts_per_run": 5,
+      "id": "gamemeca_news",
+      "name": "게임메카",
+      "icon": "🎮",
+      "url": "https://www.gamemeca.com/rss.php",
+      "crawler_type": "rss",
+      "color": 3066993,
+      "max_posts_per_run": 10,
       "enabled": true
     }
   ]
