@@ -36,14 +36,15 @@ EXCLUDE_KEYWORDS = [
 
 _client = None
 _model_name = None
-MAX_RETRIES = 2
-RETRY_DELAY = 15
+MAX_RETRIES = 3
+RETRY_DELAY = 60  # 429 발생 시 60초 대기
+INTER_REQUEST_DELAY = 5  # 기사 간 기본 대기 (RPM 방지)
 
 PREFERRED_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash-lite",   # 무료 RPM 30 (가장 넉넉)
+    "gemini-2.0-flash",        # 무료 RPM 15
+    "gemini-1.5-flash-8b",     # 무료 RPM 15, 경량
     "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
     "gemini-1.5-pro",
 ]
 
@@ -135,5 +136,6 @@ def filter_and_summarize(post: Post, source: dict) -> str | None:
 출시일: (출시일 또는 예정일, 모르면 미정)
 요약: (핵심 내용 2~3줄)"""
 
+    time.sleep(INTER_REQUEST_DELAY)
     result = _call_gemini(prompt)
     return result if result else _fallback_summary(post)
