@@ -17,14 +17,22 @@ from crawlers.base import Post
 
 logger = logging.getLogger(__name__)
 
-# 신규 출시 관련 키워드 (제목에 하나라도 포함되면 통과)
+# 신규 출시 관련 키워드 (제목에 하나라도 포함되면 1차 통과)
 RELEASE_KEYWORDS = [
-    "출시", "발매", "런칭", "오픈", "정식 서비스", "정식서비스",
+    "정식 출시", "정식출시", "정식 발매", "정식발매",
     "사전예약", "사전 예약", "사전다운로드", "사전 다운로드",
     "얼리 액세스", "앞서 해보기",
-    "신작", "신규 게임", "새 게임",
-    "리뷰", "평점", "메타크리틱", "오픈크리틱",
-    "released", "launch", "release date",
+    "신작", "신규 게임",
+    "메타크리틱", "오픈크리틱",
+    "출시 예정", "발매 예정", "출시일",
+    "28일 출시", "일 출시", "일 발매", "일 런칭", "일 오픈",
+]
+
+# 제목에 있으면 무조건 제외 (과거 사건, 주년 기념 등)
+EXCLUDE_KEYWORDS = [
+    "주년", "기념", "유출", "해킹", "폐서", "서비스 종료",
+    "업데이트", "패치", "이벤트", "콜라보", "논란", "사건",
+    "인터뷰", "근황", "소식통", "루머", "추측",
 ]
 
 _model = None
@@ -33,9 +41,21 @@ RETRY_DELAY = 15
 
 
 def _keyword_match(title: str, content: str) -> bool:
-    """제목 또는 본문 앞부분에 출시 관련 키워드가 있는지 확인합니다."""
-    text = (title + " " + content[:300]).lower()
-    return any(kw.lower() in text for kw in RELEASE_KEYWORDS)
+    """제목 기준으로 신규 출시 관련 기사인지 판단합니다."""
+    title_lower = title.lower()
+
+    # 제외 키워드가 제목에 있으면 탈락
+    if any(kw in title_lower for kw in EXCLUDE_KEYWORDS):
+        return False
+
+    # 출시 키워드가 제목에 있으면 통과
+    if any(kw.lower() in title_lower for kw in RELEASE_KEYWORDS):
+        return True
+
+    # 본문 앞부분 보조 확인 (제목에 없을 때만)
+    body_preview = content[:200].lower()
+    strong_keywords = ["정식 출시", "정식출시", "사전예약", "출시 예정", "발매 예정"]
+    return any(kw in body_preview for kw in strong_keywords)
 
 
 def _get_model():
@@ -45,18 +65,30 @@ def _get_model():
         if not api_key:
             raise EnvironmentError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
         genai.configure(api_key=api_key)
-        # 모델 우선순위: 2.0-flash → 1.5-flash → pro 순으로 시도
-        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
-            try:
-                m = genai.GenerativeModel(model_name)
-                m.generate_content("test", generation_config={"max_output_tokens": 1})
-                _model = m
-                logger.info(f"Gemini 모델 사용: {model_name}")
-                break
-            except Exception:
-                continue
-        if _model is None:
-            raise RuntimeError("사용 가능한 Gemini 모델이 없습니다.")
+        # 사용 가능한 모델 목록 조회
+        try:
+            available = [
+                m.name.replace("models/", "")
+                for m in genai.list_models()
+                if "generateContent" in [s.name for s in m.supported_generation_methods]
+            ]
+            logger.info(f"사용 가능한 Gemini 모델: {available}")
+        except Exception as e:
+            logger.warning(f"모델 목록 조회 실패: {e}")
+            available = []
+
+        # 우선순위대로 모델 선택
+        preferred = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+        selected = next((m for m in preferred if m in available), None)
+
+        if not selected and available:
+            selected = available[0]
+
+        if not selected:
+            raise RuntimeError("사용 가능한 Gemini 모델이 없습니다. API 키를 확인해 주세요.")
+
+        _model = genai.GenerativeModel(selected)
+        logger.info(f"선택된 Gemini 모델: {selected}")
     return _model
 
 
