@@ -1,10 +1,12 @@
 """
-범용 RSS 크롤러. crawler_type: "rss"
+범용 RSS/Atom 피드 크롤러
+crawler_type: "rss"
 
-RSS를 공식 제공하는 사이트는 Cloudflare 차단 없이 안정적으로 수집됩니다.
-기사 본문이 RSS 피드에 포함되어 있으므로 별도 페이지 접속이 필요 없습니다.
+RSS는 사이트가 공식으로 제공하는 데이터 형식으로,
+Cloudflare 등 봇 차단 없이 안정적으로 수집할 수 있습니다.
+기사 본문이 피드에 포함되어 있어 별도 페이지 접속이 필요 없습니다.
 
-sources.json 에서 "url" 에 RSS 피드 URL을 입력하면 됩니다.
+sources.json 의 "url" 필드에 RSS 피드 URL을 입력하면 됩니다.
 """
 
 import hashlib
@@ -16,14 +18,16 @@ from .base import BaseCrawler, Post
 
 logger = logging.getLogger(__name__)
 
+# RSS/Atom 표준 XML 네임스페이스
 _NS = {
-    "content": "http://purl.org/rss/1.0/modules/content/",
-    "atom":    "http://www.w3.org/2005/Atom",
-    "dc":      "http://purl.org/dc/elements/1.1/",
+    "content": "http://purl.org/rss/1.0/modules/content/",  # 본문 전문
+    "atom":    "http://www.w3.org/2005/Atom",               # Atom 피드
+    "dc":      "http://purl.org/dc/elements/1.1/",          # Dublin Core (카테고리 등)
 }
 
 
 def _find_text(el, *paths: str) -> str:
+    """여러 경로를 순서대로 시도해 첫 번째로 찾은 텍스트를 반환합니다."""
     for path in paths:
         node = el.find(path, _NS)
         if node is not None and node.text:
@@ -32,21 +36,24 @@ def _find_text(el, *paths: str) -> str:
 
 
 def _strip_html(text: str) -> str:
+    """HTML 태그를 제거하고 연속 공백을 정리합니다."""
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
 
 def _make_id(url: str) -> str:
+    """URL 을 MD5 해싱해 16자리 고유 ID를 생성합니다."""
     return hashlib.md5(url.encode()).hexdigest()[:16]
 
 
 class RssCrawler(BaseCrawler):
-    """범용 RSS 크롤러. crawler_type: "rss" """
+    """범용 RSS/Atom 피드 크롤러. crawler_type: "rss" """
 
-    MAX_CONTENT = 3000
+    MAX_CONTENT = 3000  # 본문 최대 길이 (Gemini 토큰 절약)
 
     def fetch_post_list(self) -> list[Post]:
+        """RSS 피드를 파싱해 Post 목록을 반환합니다."""
         response = self._get(self.config["url"])
         if not response:
             logger.error(f"[{self.config['id']}] RSS 요청 실패: {self.config['url']}")
@@ -55,26 +62,27 @@ class RssCrawler(BaseCrawler):
         try:
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
-            logger.error(f"[{self.config['id']}] RSS 파싱 실패: {e}")
+            logger.error(f"[{self.config['id']}] RSS XML 파싱 실패: {e}")
             return []
 
+        # RSS 2.0: <item>, Atom: <entry>
         items = root.findall(".//item") or root.findall(".//atom:entry", _NS)
         posts: list[Post] = []
 
         for item in items:
+            # 링크 추출: <link> 텍스트 → <guid> → Atom <link href="...">
             link = _find_text(item, "link", "guid")
             if not link or not link.startswith("http"):
-                # Atom <link href="..."> 처리
                 link_el = item.find("link")
                 if link_el is not None:
                     link = link_el.get("href", "")
             if not link:
                 continue
 
-            title   = _find_text(item, "title")
+            title = _find_text(item, "title")
             category = _find_text(item, "category", "dc:subject")
 
-            # 기사 본문: content:encoded > description 순서로 추출
+            # 본문 우선순위: content:encoded (전문) > description (요약)
             raw_content = (
                 _find_text(item, "content:encoded")
                 or _find_text(item, "description")
@@ -93,5 +101,5 @@ class RssCrawler(BaseCrawler):
         return posts
 
     def fetch_post_content(self, url: str) -> str:
-        # RSS에 이미 본문이 포함되어 있으므로 별도 요청 불필요
+        """RSS 본문은 fetch_post_list 에서 이미 수집되므로 별도 요청 없음."""
         return ""
