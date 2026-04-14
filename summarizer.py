@@ -41,10 +41,10 @@ RETRY_DELAY = 60  # 429 발생 시 60초 대기
 INTER_REQUEST_DELAY = 5  # 기사 간 기본 대기 (RPM 방지)
 
 PREFERRED_MODELS = [
-    "gemini-2.0-flash-lite",   # 무료 RPM 30 (가장 넉넉)
-    "gemini-2.0-flash",        # 무료 RPM 15
-    "gemini-1.5-flash-8b",     # 무료 RPM 15, 경량
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
     "gemini-1.5-pro",
 ]
 
