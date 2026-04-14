@@ -72,22 +72,19 @@ class QuasarzoneCrawler(BaseCrawler):
                     page.goto(url, wait_until="networkidle", timeout=30000)
 
                 html = page.content()
-                logger.info(f"[{self.config['id']}] 페이지 로드 성공: {url}")
+                title = page.title()
+                logger.info(f"[{self.config['id']}] 페이지 로드 성공 | 제목: {title}")
 
-                # 선택자 디버깅: 실제 HTML 앵커 태그 샘플 출력
+                # 실제 페이지 본문 앞부분 출력 (봇 감지 여부 확인용)
                 soup_debug = BeautifulSoup(html, "lxml")
-                sample_links = [
-                    a.get("href", "")
-                    for a in soup_debug.select("a[href*='/views/']")[:3]
-                ]
-                logger.info(f"[{self.config['id']}] /views/ 링크 샘플: {sample_links}")
+                body = soup_debug.find("body")
+                body_text = body.get_text(separator=" ", strip=True)[:500] if body else "(body 없음)"
+                logger.info(f"[{self.config['id']}] 본문 미리보기: {body_text}")
 
-                # li 태그 구조 샘플
-                li_sample = soup_debug.select("li")
-                li_classes = list({
-                    " ".join(li.get("class", [])) for li in li_sample[:20]
-                    if li.get("class")
-                })
+                # /views/ 링크 및 li 구조 확인
+                sample_links = [a.get("href", "") for a in soup_debug.select("a[href*='/views/']")[:3]]
+                li_classes = list({" ".join(li.get("class", [])) for li in soup_debug.select("li")[:20] if li.get("class")})
+                logger.info(f"[{self.config['id']}] /views/ 링크: {sample_links}")
                 logger.info(f"[{self.config['id']}] li class 목록: {li_classes[:10]}")
 
                 return html
