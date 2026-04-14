@@ -1,0 +1,14 @@
+{
+  "sources": [
+    {
+      "id": "quasarzone_game",
+      "name": "퀘이사존 게임뉴스",
+      "icon": "🎮",
+      "url": "https://quasarzone.com/bbs/qn_game?_method=post&type=&page=1&_token=uzp2S3BEeGpSpyEZE2KUy6isSIBKkqzt3TtpIcbK&category=&popularity=Y&kind=subject&keyword=&sort=num%2C+reply&direction=DESC",
+      "crawler_type": "quasarzone",
+      "color": 5793266,
+      "max_posts_per_run": 5,
+      "enabled": true
+    }
+  ]
+}
