@@ -39,7 +39,7 @@ class QuasarzoneCrawler(BaseCrawler):
             try:
                 if post_data:
                     # 베스트 필터: 메인 페이지 먼저 방문 → CSRF 토큰 획득 → POST
-                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.goto(url, wait_until="networkidle", timeout=30000)
                     token = page.evaluate(
                         "() => document.querySelector('meta[name=\"csrf-token\"]')?.content || ''"
                     )
@@ -49,7 +49,6 @@ class QuasarzoneCrawler(BaseCrawler):
 
                     if token:
                         post_data["_token"] = token
-                        params = "&".join(f"{k}={v}" for k, v in post_data.items())
                         page.evaluate(f"""
                             () => {{
                                 const form = document.createElement('form');
@@ -66,14 +65,31 @@ class QuasarzoneCrawler(BaseCrawler):
                                 form.submit();
                             }}
                         """)
-                        page.wait_for_load_state("domcontentloaded", timeout=30000)
+                        page.wait_for_load_state("networkidle", timeout=30000)
                     else:
                         logger.warning(f"[{self.config['id']}] CSRF 토큰 미발견, 일반 목록으로 대체")
                 else:
-                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.goto(url, wait_until="networkidle", timeout=30000)
 
                 html = page.content()
                 logger.info(f"[{self.config['id']}] 페이지 로드 성공: {url}")
+
+                # 선택자 디버깅: 실제 HTML 앵커 태그 샘플 출력
+                soup_debug = BeautifulSoup(html, "lxml")
+                sample_links = [
+                    a.get("href", "")
+                    for a in soup_debug.select("a[href*='/views/']")[:3]
+                ]
+                logger.info(f"[{self.config['id']}] /views/ 링크 샘플: {sample_links}")
+
+                # li 태그 구조 샘플
+                li_sample = soup_debug.select("li")
+                li_classes = list({
+                    " ".join(li.get("class", [])) for li in li_sample[:20]
+                    if li.get("class")
+                })
+                logger.info(f"[{self.config['id']}] li class 목록: {li_classes[:10]}")
+
                 return html
 
             except Exception as e:
