@@ -45,7 +45,18 @@ def _get_model():
         if not api_key:
             raise EnvironmentError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
         genai.configure(api_key=api_key)
-        _model = genai.GenerativeModel("gemini-1.5-flash")
+        # 모델 우선순위: 2.0-flash → 1.5-flash → pro 순으로 시도
+        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                m = genai.GenerativeModel(model_name)
+                m.generate_content("test", generation_config={"max_output_tokens": 1})
+                _model = m
+                logger.info(f"Gemini 모델 사용: {model_name}")
+                break
+            except Exception:
+                continue
+        if _model is None:
+            raise RuntimeError("사용 가능한 Gemini 모델이 없습니다.")
     return _model
 
 
