@@ -12,6 +12,8 @@ sources.json 의 "url" 필드에 RSS 피드 URL을 입력하면 됩니다.
 import hashlib
 import logging
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
 from .base import BaseCrawler, Post
@@ -26,10 +28,10 @@ _NS = {
 }
 
 
-def _find_text(el, *paths: str) -> str:
+def _find_text(el, *paths: str, ns: dict = _NS) -> str:
     """여러 경로를 순서대로 시도해 첫 번째로 찾은 텍스트를 반환합니다."""
     for path in paths:
-        node = el.find(path, _NS)
+        node = el.find(path, ns)
         if node is not None and node.text:
             return node.text.strip()
     return ""
@@ -45,6 +47,27 @@ def _strip_html(text: str) -> str:
 def _make_id(url: str) -> str:
     """URL 을 MD5 해싱해 16자리 고유 ID를 생성합니다."""
     return hashlib.md5(url.encode()).hexdigest()[:16]
+
+
+def _parse_pubdate(item) -> datetime | None:
+    """RSS <pubDate> 또는 Atom <published> 를 UTC datetime 으로 파싱합니다."""
+    raw = (
+        _find_text(item, "pubDate")
+        or _find_text(item, "atom:published", ns=_NS)
+        or _find_text(item, "dc:date")
+    )
+    if not raw:
+        return None
+    try:
+        dt = parsedate_to_datetime(raw)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        try:
+            # ISO 8601 형식 (Atom 등)
+            raw_clean = raw.replace("Z", "+00:00")
+            return datetime.fromisoformat(raw_clean).astimezone(timezone.utc)
+        except Exception:
+            return None
 
 
 class RssCrawler(BaseCrawler):
@@ -95,6 +118,7 @@ class RssCrawler(BaseCrawler):
                 url=link,
                 category=category,
                 content=content,
+                published_at=_parse_pubdate(item),
             ))
 
         logger.info(f"[{self.config['id']}] RSS {len(posts)}개 수집")

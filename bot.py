@@ -5,16 +5,18 @@ GitHub Actions 에서 `python bot.py` 로 실행됩니다.
 실행 흐름:
   1. config/sources.json 에서 활성화된 소스 목록 로드
   2. 각 소스별로 RSS 피드 수집
-  3. 이전에 처리한 기사(seen_posts.json) 제외 → 신규 기사만 선별
-  4. 키워드 필터 → Gemini AI 요약
-  5. Discord Webhook 으로 embed 전송
-  6. 처리된 기사 ID를 seen_posts.json 에 저장 (중복 방지)
+  3. 시간 필터: 최근 N시간(기본 2h) 이내 발행된 기사만 처리
+  4. 중복 제거: seen_posts.json 에 기록된 기사 제외
+  5. 키워드 필터 → Groq AI 요약
+  6. Discord Webhook 으로 embed 전송
+  7. 처리된 기사 ID를 seen_posts.json 에 저장 (중복 방지)
 """
 
 import json
 import logging
 import sys
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from crawlers import CRAWLER_REGISTRY
@@ -77,10 +79,31 @@ def run() -> None:
         crawler = crawler_cls(source)
         posts = crawler.fetch_post_list()
 
-        # 이미 처리한 기사 제외
+        # ── 시간 기반 필터: 최근 N시간 이내 발행된 기사만 처리 ──
+        # lookback_hours 기본값 2 (매시간 실행 기준, 약간의 여유분 포함)
+        lookback_hours: int = source.get("lookback_hours", 2)
+        cutoff: datetime = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+        time_filtered: list = []
+        for p in posts:
+            if p.published_at is None:
+                # 발행 시각 정보가 없으면 통과 (안전하게 포함)
+                time_filtered.append(p)
+            elif p.published_at >= cutoff:
+                time_filtered.append(p)
+            else:
+                logger.debug(
+                    f"[{source_id}] 시간 필터 제외 "
+                    f"({p.published_at.strftime('%Y-%m-%d %H:%M UTC')}): {p.title[:40]}"
+                )
+        logger.info(
+            f"[{source_id}] 시간 필터({lookback_hours}h) 후: "
+            f"{len(posts)}개 → {len(time_filtered)}개 (기준: {cutoff.strftime('%Y-%m-%d %H:%M UTC')})"
+        )
+
+        # ── 중복 제거: seen_posts.json 기준 ──
         seen_ids: set[str] = set(updated_seen.get(source_id, []))
         max_per_run: int = source.get("max_posts_per_run", 10)
-        new_posts = [p for p in posts if p.id not in seen_ids][:max_per_run]
+        new_posts = [p for p in time_filtered if p.id not in seen_ids][:max_per_run]
 
         if not new_posts:
             logger.info(f"[{source_id}] 신규 기사 없음")

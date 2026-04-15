@@ -24,9 +24,10 @@ class Post:
     id: str           # 기사 고유 식별자 (URL 해시 또는 게시글 번호)
     title: str        # 기사 제목
     url: str          # 기사 원문 URL
-    category: str = ""       # 카테고리 (없으면 빈 문자열)
-    comment_count: str = "0" # 댓글 수 (RSS 소스는 항상 "0")
-    content: str = ""        # 기사 본문 (RSS는 피드에 포함, 그 외는 별도 수집)
+    category: str = ""              # 카테고리 (없으면 빈 문자열)
+    comment_count: str = "0"        # 댓글 수 (RSS 소스는 항상 "0")
+    content: str = ""               # 기사 본문
+    published_at: object = None     # 기사 발행 시각 (datetime, 없으면 None)
 
 
 class BaseCrawler(ABC):
